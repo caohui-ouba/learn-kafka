@@ -29,7 +29,7 @@ conf/server.properties是kafka的主要配置文件，主要修改以下属性�
 - listeners: 这个broker(kafka进程)监听的端口
 - broker.id: 这个broker在zookeeper中注册的id号，全局唯一的，不同的broker一定不要相同。
 - log.dirs: 日志的输出文件。    
-- zookeeper.connect: 集群中所有zookeeper的hostname:port ,逗号隔开
+- zookeeper.connect: 集群中所有zookeeper的hostname:port ,逗号隔开。
 
 #### 2.1.2 config/zookeeper.properties
 
@@ -96,6 +96,8 @@ message2...
 
 消费完所有消息后，consumer阻塞，等待新的消息push过来。
 
+consumer消费数据之后，我们来用list命令查看现在
+
 ### 2.7 Describe查看Topic的分区状态
 
 ```shell
@@ -113,7 +115,7 @@ Topic:test	PartitionCount:3	ReplicationFactor:3	Configs:segment.bytes=1073741824
 - Replicas: broker的个数，包括已经挂掉的。
 - Isr: Active的broker个数。
 
-## 2。8 将文件作为kafka的输入
+## 2.8 将文件作为kafka的输入
 
 日常生产中会产生非常多的日志，kafka能够对正在写入的日志文件进行分析，文件中的每一行作为topic的一个record。我们看一下官方给的例子。
 
@@ -135,6 +137,8 @@ kafka官方为我们提供了一个bin文件`bin/connect-standalone.sh`，负责
 ./bin/connect-standalone.sh ./config/connect-standalone.properties ./config/connect-file-source.properties ./config/connect-file-sink.properties
 ```
 
+会在当前目录生成一个test.sink.txt的文件,这个其实是kafka在对test.txt进行流处理之后的输出文件
+
 配置文件中topic name是connect-test，所以执行以下命令。
 
 ```shell
@@ -146,3 +150,30 @@ kafka官方为我们提供了一个bin文件`bin/connect-standalone.sh`，负责
 
 可以看到，文件中的两行数据，foo和bar都被当作topic connect-test的record输入了。如果消费这个topic，可以获得每行信息。
 
+## 三、一些基本原理
+
+### 3.1 分区和副本
+
+- Kafka的副本一定是保存在不同的broker上，同一个Broker保存两个副本没有意义。
+- Kafka的分区方式可以自己自定义的方式指定，比如Hash的方式，轮询的方式等等。
+- 同一个消费者组中的消费者不能消费同一个分区。消费者组内的消费者是多线程的，每个线程对应一个消费者，每个线程消费自己的分区，可能是多个分区。
+
+### 3.2 zookeeper的作用
+
+- broker注册：broker在zookeeper中以/brokers/ids/#id的方式注册自己，让其他broker发现自己。
+- 消费者注册：消费者会在zookeeper的/consumers/\[group_id]/ids/\[consumer_id]下注册自己。
+- 保存topic的meta信息：也就是topic的分区信息，分区副本分布在哪些broker上。
+- 生产者负载均衡：生产者将消息生产到不同的分区，分区位置是通过zookeeper获得的。
+- 消费者负载均衡：每个消费者只消费一个分区的消息，这个关系也是zookeeper维护的，/consumers/\[group_id]/owners/\[topic]/\[broker_id-partition_id]。
+
+### 3.2 关于Producer
+
+producer有个概念叫做 _ACK应答机制_ 。producer在生产消息的时候，会指定有一个应答策略，`0`，`1`，`all`三种。
+
+- 0：不需要任何分区应答，producer只管写数据。速度很快，但容易丢数据。
+- 1：只需要leader分区应答ack。速度中等，不丢数据，但可能会产生leader和followers的数据不一致。
+- all：leader和所有followers都需要做ack应答，速度慢，但数据一致性强。
+
+## 四 Java API的使用方式
+
+见代码
